@@ -1,0 +1,11 @@
+{
+  "name": "agent-session-board",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live list of local Claude Code and Codex conversations",
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

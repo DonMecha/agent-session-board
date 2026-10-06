@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>セッション一覧</title>
+<style>
+:root{font-family:'Noto Sans CJK JP',sans-serif;color:#182535;background:#f4f6f9;font-size:17px}*{box-sizing:border-box}body{max-width:1600px;margin:0 auto;padding:48px}header{display:flex;align-items:center;justify-content:space-between;gap:20px}h1{font-size:34px;margin:8px 0}p{color:#677487}.eyebrow{font-size:13px;letter-spacing:.2em;color:#52739f}button{background:white;border:1px solid #ccd4df;border-radius:9px;padding:12px 18px;color:#33465c;font:inherit;cursor:pointer}.stats{display:flex;gap:16px;margin:28px 0}.stat{flex:1;background:white;border:1px solid #e0e5ed;padding:22px;border-radius:14px}.stat strong{font-size:34px;margin-right:12px}.stat span{color:#677487}.panel{background:white;border:1px solid #e0e5ed;border-radius:14px;overflow:hidden}table{border-collapse:collapse;width:100%;text-align:left}th{color:#718096;font-size:13px;font-weight:500;background:#fafbfc}td,th{padding:18px 22px;border-bottom:1px solid #edf0f4}td small{display:block;color:#7d8898;font-size:12px;margin-top:6px}.topic{min-width:260px;max-width:540px;overflow-wrap:anywhere;font-weight:600}.topic small{font-weight:400}.path{max-width:500px;overflow-wrap:anywhere;font-size:15px}.badge{display:inline-block;padding:6px 13px;border-radius:20px;font-size:14px;white-space:nowrap;background:#eef1f5;color:#697487}.busy{background:#e7f2ff;color:#176cc0}.idle{background:#e8f4ed;color:#367952}footer{font-size:13px;color:#7a8796;line-height:1.9;margin-top:22px}#health{font-size:14px;color:#557362}.empty{padding:50px;text-align:center;color:#6f7c8c}select{font:inherit;border:1px solid #ccd4df;border-radius:8px;padding:10px;background:white}.controls{display:flex;gap:12px;align-items:center}@media(max-width:850px){body{padding:20px}.path{max-width:180px}td,th{padding:12px}header{align-items:flex-start}.stats{gap:8px}.stat{padding:12px}}
+.tool-section{margin:26px 0 36px;border-top:5px solid #2979bb;border-radius:14px;background:#fff}.tool-section.claude{border-top-color:#bc714b}.tool-heading{display:flex;align-items:center;gap:16px;padding:22px 24px;background:#edf5fc;border-radius:10px 10px 0 0}.claude .tool-heading{background:#fbf0e9}.tool-heading h2{margin:0;font-size:27px}.tool-heading span{font-size:15px;color:#647386}.tool-section .panel{border-radius:0 0 14px 14px}table{table-layout:fixed}th:first-child{width:40%}th:nth-child(2){width:18%}.topic{min-width:0}.badge{white-space:normal}.topic-busy{color:#176cc0}.topic-idle{color:#367952}.topic-unknown{color:#697487}.life-heading{font-size:17px;margin:0;padding:16px 22px;background:#f3f6fa}.life-closed{background:#fafafa}.life-unknown{background:#fff9ed}details summary{cursor:pointer}.life-note{font-size:12px;color:#718096;margin-top:6px}.closed-row{opacity:.75}</style>
+<header><div><div class="eyebrow">LIVE SESSIONS</div><h1>セッション一覧</h1><div id="health">接続しています…</div></div><div class="controls"><select id="filter" aria-label="ツールで絞り込み"><option value="">すべて</option><option>Claude Code</option><option>Codex</option></select><button id="stop">表示を終了</button></div></header>
+<div class="stats"><div class="stat"><strong id="total">—</strong><span>アクティブ</span></div><div class="stat"><strong id="busy">—</strong><span>作業中</span></div><div class="stat"><strong id="idle">—</strong><span>入力待ち</span></div><div class="stat"><strong id="unknown">—</strong><span>状態不明</span></div></div>
+<p id="codex-warning" role="status" hidden style="padding:14px 18px;background:#fff2dc;color:#885020;border-radius:9px"></p><div id="groups"></div>
+
+<footer>2秒ごとに確認します。Codexの「アクティブ」はCodex自身が読み込んでいる会話（作業中・入力待ち）です。まだ依頼のない空の画面や、接続用プロセスは数えません。閉じた会話は最近32件、アーカイブは16件まで表示します。<br>Claude Codeは対応するプロセスの起動・終了を確認します。Claude Codeの終了履歴は、この一覧の起動中に確認した分です。<br>「表示を終了」は一覧だけを止めます。窓を閉じた場合は5分後に表示用処理が終了します。</footer>
+<script>
+let data=null, stopped=false, timer;
+const el=id=>document.getElementById(id);
+function cell(row,text,cls){const td=document.createElement('td');td.textContent=text;if(cls)td.className=cls;row.append(td);return td}
+const groupLabels={active:'アクティブ（作業中・入力待ち）',unknown:'開閉不明',closed:'閉じた会話・アーカイブ'};
+for(const [key,name] of [['codex','Codex'],['claude','Claude Code']]){
+ const section=document.createElement('section');section.className='tool-section '+key;section.id='section-'+key;
+ const heading=document.createElement('div');heading.className='tool-heading';
+ const h=document.createElement('h2');h.textContent=name;heading.append(h);
+ const count=document.createElement('span');count.id='count-'+key;heading.append(count);section.append(heading);
+ for(const life of ['active','unknown','closed']){
+  const box=document.createElement(life==='closed'?'details':'div');box.className='panel';
+  const label=document.createElement(life==='closed'?'summary':'h3');label.className='life-heading life-'+life;label.id='label-'+key+'-'+life;box.append(label);
+  const table=document.createElement('table');const head=document.createElement('thead');const row=document.createElement('tr');
+  for(const title of ['話題 / セッション','開閉 / 処理状態','作業場所','記録の最終更新']){const th=document.createElement('th');th.textContent=title;row.append(th)}
+  head.append(row);table.append(head);const body=document.createElement('tbody');body.id='rows-'+key+'-'+life;table.append(body);box.append(table);section.append(box);
+ }
+ el('groups').append(section);
+}
+function render(){
+ if(!data)return;
+ el('codex-warning').hidden=data.codex_available!==false;
+ el('codex-warning').textContent=data.codex_last_success?'Codexの更新が遅れています。'+new Date(data.codex_last_success*1000).toLocaleTimeString('ja-JP')+' に確認した分類・状態を表示しています。':'Codexの状態をまだ取得できていません。次の更新で再確認します。';
+ const list=data.sessions.filter(s=>!el('filter').value||s.tool===el('filter').value);
+ el('total').textContent=list.filter(s=>s.lifecycle==='active').length;
+ for(const t of ['busy','idle','unknown'])el(t).textContent=list.filter(s=>s.tone===t&&s.lifecycle!=='closed').length;
+ for(const [key,name] of [['codex','Codex'],['claude','Claude Code']]){
+  const items=list.filter(s=>s.tool===name);
+  el('count-'+key).textContent='アクティブ '+items.filter(s=>s.lifecycle==='active').length+' 件';
+  el('section-'+key).hidden=!!el('filter').value&&el('filter').value!==name;
+  for(const life of ['active','unknown','closed']){
+   el('rows-'+key+'-'+life).replaceChildren();el('label-'+key+'-'+life).textContent=groupLabels[life]+' · '+items.filter(s=>s.lifecycle===life).length+' 件';
+  }
+ }
+ for(const s of list){
+  const tr=document.createElement('tr');if(s.lifecycle==='closed')tr.className='closed-row';
+  const topic=cell(tr,s.topic||'話題を取得できません','topic topic-'+s.tone);
+  const detail=document.createElement('small');detail.textContent=s.id.slice(0,12)+(s.pid?' · PID '+s.pid:'')+' · '+s.source;topic.append(detail);
+  const status=cell(tr,'');const life=document.createElement('div');life.textContent=s.life_label;life.title=s.life_reason;status.append(life);
+  if(s.lifecycle!=='closed'){const badge=document.createElement('span');badge.className='badge '+s.tone;badge.textContent=s.state;status.append(badge)}
+  const reason=document.createElement('small');reason.textContent=s.life_reason;status.append(reason);
+  cell(tr,(s.cwd||'').replace(/^\/home\/[^/]+/,'~'),'path');cell(tr,s.updated?new Date(s.updated*1000).toLocaleString('ja-JP'):'取得できません');
+  el('rows-'+(s.tool==='Codex'?'codex':'claude')+'-'+s.lifecycle).append(tr);
+ }
+}
+
+async function refresh(){
+ if(stopped)return;
+ try{
+  const r=await fetch('/api/sessions',{signal:AbortSignal.timeout(5000)});
+  if(!r.ok)throw Error();
+  const next=await r.json();
+  // An in-flight response must not overwrite the completed stop state.
+  if(stopped)return;
+  data=next;render();
+  el('health').textContent='● 接続中 · '+new Date(data.time*1000).toLocaleTimeString('ja-JP')+' 更新'+(data.codex_available===false?' · Codexは前回の確認結果を表示':'')+(data.limited?' · 履歴は直近分を表示':'');
+  el('health').style.color='#557362';
+ }catch{
+  if(stopped)return;
+  el('health').textContent='接続が切れています · 一覧は更新されていません';el('health').style.color='#b36126';
+ }
+ if(!stopped)timer=setTimeout(refresh,2000);
+}
+el('filter').onchange=render;el('stop').onclick=async()=>{try{const r=await fetch('/stop',{method:'POST',signal:AbortSignal.timeout(5000)});if(!r.ok)throw Error();stopped=true;clearTimeout(timer);el('health').textContent='表示を終了しました · セッションは動いたままです';el('stop').disabled=true}catch{el('health').textContent='停止を確認できませんでした'}};refresh();
+</script></html>
